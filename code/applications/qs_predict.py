@@ -204,13 +204,13 @@ def predict_image(args):
             correction_result = util.predict_momentum(moving_image_np, target_inv_np, input_batch, batch_size, patch_size, correction_net, correct_transform_space);
             m0_correct = correction_result['image_space']
             m0 += m0_correct;
-            m0_reg = common.FieldFromNPArr(m0, mType);
+            # m0_reg = common.FieldFromNPArr(m0, mType);
 
-        registration_result = registration_methods.geodesic_shooting(moving_image, target_image, m0_reg, args.shoot_steps, mType, predict_network_config)
+        # registration_result = registration_methods.geodesic_shooting(moving_image, target_image, m0_reg, args.shoot_steps, mType, predict_network_config)
 
         #endif
 
-        write_result(registration_result, args.output_prefix[i]);
+        # write_result(registration_result, args.output_prefix[i]);
         write_momentum(m0, args.output_prefix[i])
 #enddef
 
