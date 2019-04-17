@@ -120,6 +120,9 @@ def write_result(result, output_prefix):
     common.SaveITKField(result['phiinv'], output_prefix+"phiinv.mhd")
 #enddef
 
+def write_momentum(momentum, output_prefix):
+    np.save(output_prefix + 'momentum.npy', momentum)
+#enddef
 
 #perform deformation prediction
 def predict_image(args):
@@ -208,6 +211,7 @@ def predict_image(args):
         #endif
 
         write_result(registration_result, args.output_prefix[i]);
+        write_momentum(m0, args.output_prefix[i])
 #enddef
 
 
