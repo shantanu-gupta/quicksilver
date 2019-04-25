@@ -98,6 +98,15 @@ def convert_to_predict_space(image):
 	return output;
 #enddef
 
+def convert_to_predict_space_torch(image):
+    if len(image.size()) == 3:
+        output = image.permute(*[2, 1, 0])
+    elif len(image.size()) == 4:
+        output = image.permute(*[3, 2, 1, 0])
+    return output
+
+def convert_to_registration_space_torch(image):
+    return convert_to_predict_space_torch(image)
 
 def convert_to_registration_space(image):
 	return convert_to_predict_space(image);
@@ -159,6 +168,65 @@ def predict_momentum(moving, target, input_batch, batch_size, patch_size, net, c
     	momentum_predict = convert_to_registration_space(momentum_predict)
     else:
     	momentum_predict = np.transpose(momentum_predict, [1, 2, 3, 0])    
+    prediction_result = {
+    	'prediction_space': momentum_predict_prediction_space,
+    	'image_space': momentum_predict
+    }
+    return prediction_result
+
+# predict the momentum given a moving and target image
+def predict_momentum_torch(moving, target, input_batch, batch_size, patch_size, net, change_space, step_size=14):
+    if change_space:
+        moving = convert_to_predict_space_torch(moving)
+        target = convert_to_predict_space_torch(target)
+
+    data_size = moving.size();
+    flat_idx = calculatePatchIdx3D(1, patch_size*torch.ones(3), data_size, step_size*torch.ones(3));
+    flat_idx_select = torch.zeros(flat_idx.size());
+    #remove the background patches
+    for patch_idx in range(1, flat_idx.size()[0]):
+        patch_pos = idx2pos_4D(flat_idx[patch_idx], data_size)
+        moving_patch = moving[patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size]
+        target_patch = target[patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size]
+        if (torch.sum(moving_patch) + torch.sum(target_patch) != 0):
+            flat_idx_select[patch_idx] = 1;
+
+    flat_idx_select = flat_idx_select.byte();
+    flat_idx = torch.masked_select(flat_idx, flat_idx_select);	
+
+    momentum_predict = torch.zeros(3, data_size[0], data_size[1], data_size[2]).cuda()
+    momentum_weight = torch.zeros(3, data_size[0], data_size[1], data_size[2]).cuda()
+    #start prediction
+    batch_idx = 0;
+    while(batch_idx < flat_idx.size()[0]):
+        if (batch_idx + batch_size < flat_idx.size()[0]):
+            cur_batch_size = batch_size;
+        else:
+            cur_batch_size = flat_idx.size()[0] - batch_idx
+
+        for slices in range(0, cur_batch_size):
+            patch_pos = idx2pos_4D(flat_idx[batch_idx+slices], data_size)
+            input_batch[slices, 0] = moving[patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size]
+            input_batch[slices, 1] = target[patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size]
+
+        input_batch_variable = Variable(input_batch, volatile=True)
+        recon_batch_variable = net(input_batch_variable)
+        for slices in range(0, cur_batch_size):
+            patch_pos = idx2pos_4D(flat_idx[batch_idx+slices], data_size)
+            momentum_predict[:, patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size] += recon_batch_variable.data[slices]
+            momentum_weight[:, patch_pos[1]:patch_pos[1]+patch_size, patch_pos[2]:patch_pos[2]+patch_size, patch_pos[3]:patch_pos[3]+patch_size] += 1
+
+        batch_idx += cur_batch_size
+
+    #remove 0 weight areas
+    momentum_weight += (momentum_weight == 0).float()
+    momentum_predict = momentum_predict.div(momentum_weight)
+    momentum_predict_prediction_space = momentum_predict
+
+    if change_space:
+        momentum_predict = convert_to_registration_space(momentum_predict)
+    else:
+    	momentum_predict = momentum_predict.permute(*[1, 2, 3, 0])
     prediction_result = {
     	'prediction_space': momentum_predict_prediction_space,
     	'image_space': momentum_predict
